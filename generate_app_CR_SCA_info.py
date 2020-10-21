@@ -387,6 +387,34 @@ def adjust_cr_cols(cr_df):
 
     return
 
+def create_excel(app_info_df: DataFrame,cloudready_info_df: DataFrame,sca_info_df: DataFrame):
+    # see: https://xlsxwriter.readthedocs.io/working_with_pandas.html
+    # see: https://pbpython.com/improve-pandas-excel-output.html
+
+
+    writer = pd.ExcelWriter(excel_file, engine='xlsxwriter')
+    app_info_df.to_excel(writer, index=False, sheet_name='Applications', startrow=1,header=False)
+    cloudready_info_df.to_excel(writer, index=False, sheet_name='Cloud', startrow=1,header=False)
+    sca_info_df.to_excel(writer, index=False, sheet_name='SCA', startrow=1,header=False)
+    if (_track_time):
+        time_tracker_df.to_excel(writer, index=False, sheet_name='Time Tracker')
+    
+    workbook = writer.book
+    worksheet = writer.sheets['Applications']
+    
+    header_format = workbook.add_format({'bg_color': '#4F81BD','font_color': '#EEECE1','bold':True, 'font_size':12})
+    # Write the column headers with the defined format.
+    for col_num, value in enumerate(app_info_df.columns.values):
+        worksheet.write(0, col_num, value, header_format)
+    rows = len(app_info_df)
+    worksheet.autofilter(0,0,rows,25)
+
+    writer.save()
+
+
+
+
+
 def main():
 
     global total_apps
