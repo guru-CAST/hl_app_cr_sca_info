@@ -1,9 +1,11 @@
 import sys
 import math
+from pandas.core.frame import DataFrame
 import requests
 import pandas as pd
 import numpy as np
 from time import perf_counter, ctime
+from requests.api import options
 from tqdm import tqdm
 
 cols=['Application', 'URL', 'Start Time', 'End Time', 'Duration']
@@ -75,7 +77,8 @@ def get_app_info():
             #print(cont)
         else:
             #print('found a blank metric')
-            i['metrics']={}
+#            i['metrics']={}
+            i['metrics']=[]
             #metrics=i.get('metrics')
             #print(metrics)
 
@@ -387,6 +390,59 @@ def adjust_cr_cols(cr_df):
 
     return
 
+def create_excel(app_info_df: DataFrame,cloudready_info_df: DataFrame,sca_info_df: DataFrame):
+    # see: https://xlsxwriter.readthedocs.io/working_with_pandas.html
+    # see: https://pbpython.com/improve-pandas-excel-output.html
+
+    writer = pd.ExcelWriter(excel_file, engine='xlsxwriter')
+
+    format_table(writer,app_info_df,'Applications')
+    format_table(writer,cloudready_info_df,'Cloud')
+    format_table(writer,sca_info_df,'SCA')
+    if (_track_time):
+        format_table(writer,time_tracker_df,'Time Tracker')
+
+    writer.save()
+
+    
+
+def format_table(writer, data, sheet_name ):
+    
+    data.to_excel(writer, index=False, sheet_name=sheet_name, startrow=1,header=False)
+
+    workbook = writer.book
+    worksheet = writer.sheets[sheet_name]
+    rows = len(data)
+    cols = len(data.columns)
+    columns=[]
+    for col_num, value in enumerate(data.columns.values):
+        columns.append({'header': value})
+
+    table_options={
+                   'columns':columns,
+                   'header_row':True,
+                   'autofilter':True,
+                   'banded_rows':True
+                }
+    worksheet.add_table(0, 0, rows, cols,table_options)
+    
+    header_format = workbook.add_format({'text_wrap':True,
+                                         'align': 'center'})
+
+    for col_num, value in enumerate(data.columns.values):
+        worksheet.write(0, col_num, value, header_format)
+        col_width = min(max_word_size(value),100)+4
+        worksheet.set_column(col_num, col_num, col_width)
+
+    
+
+def max_word_size(mystring):
+    size = 0
+    for word in mystring.split():
+        size = max(len(word),size)
+    return size
+
+
 def main():
 
     global total_apps
@@ -419,16 +475,9 @@ def main():
                                'CVE', 'Criticality', 'CVE Link', 'CPE', 'Id', 'Component Name',  \
                                'Component Vendor', 'Description']]
 
-    # TODO
-    with pd.ExcelWriter(excel_file) as writer:
-        app_info_df.to_excel(writer, index=False, sheet_name='Applications')
-        cloudready_info_df.to_excel(writer, index=False, sheet_name='Cloud')
-        sca_info_df.to_excel(writer, index=False, sheet_name='SCA')
-        if (_track_time):
-            time_tracker_df.to_excel(writer, index=False, sheet_name='Time Tracker')
+    create_excel(app_info_df,cloudready_info_df,sca_info_df)
     
     # TODO: Table formatting
-    # see: https://xlsxwriter.readthedocs.io/working_with_pandas.html
 
 if __name__ == "__main__":
     # TODO: Take arguments to get all data or specific ones.
