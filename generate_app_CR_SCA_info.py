@@ -1,3 +1,22 @@
+"""
+Name: generate_app_CR_SCA_info.py
+
+Author: Guru Pai/Nevin Kaplan
+
+Date: Thu 05/24/2020 
+
+Arguments:
+1. -c - Generate CR information
+2. -s - Generate SCA information
+2. -t - Enable the time tracking functionality
+
+NOTE:
+
+Prerequisites:
+See the README.md file for complete details.
+"""
+__version__ = 1.2
+
 import sys
 import math
 from numpy.core.multiarray import empty_like
@@ -8,6 +27,7 @@ import numpy as np
 from time import perf_counter, ctime
 from requests.api import options
 from tqdm import tqdm
+import argparse
 
 cols=['Application', 'URL', 'Start Time', 'End Time', 'Duration']
 # TODO: Only if _track_time is trus.
@@ -18,25 +38,15 @@ _track_time = True
 
 excel_file = r'.\App_CR_And_SCA_Info.xlsx'
 # Sandbox
-#token = 'Basic Zy5wYWkrQ0FTVFNhbmRib3hQU0BjYXN0c29mdHdhcmUuY29tOmNhc3RATllDMjA='
+#token = 'Basic Z...........................................='
 #domain_id = 9642
-# MMC
-token = 'Basic Zy5wYWkrTU1DQGNhc3Rzb2Z0d2FyZS5jb206Y0A1dEhpZ2hMXw=='
-domain_id = 9268
-# Wells - NKA
-#token = 'Basic bi5rYXBsYW4rV2VsbHNGYXJnb0BjYXN0c29mdHdhcmUuY29tOm1kU2kyMHR5QDAy'
-#domain_id = 1271
-# NTRS
-#token = 'Basic bi5rYXBsYW4rTlRSU0BjYXN0c29mdHdhcmUuY29tOm1kU2kyMHR5QDAx'
-#domain_id = 9455
 
 head = {'Authorization': '{}'.format(token), 'Accept': 'application/json'}
 
-debug_WF=False
-run_cloud=True
-run_oss=True
-
 total_apps = 0
+debug_WF = True
+debug, run_cloud, run_oss, run_timeline = False, False, False, False
+BASE_URL = 'https://rpa.casthighlight.com/WS2'
 
 def rest_call(url,header):
     global time_tracker_df
@@ -65,7 +75,7 @@ def rest_call(url,header):
 
 
 def get_total_apps(domain_id):
-#    head = {'Authorization': '{}'.format(token), 'Accept': 'application/vnd.castsoftware.api.basic+json'}
+    #head = {'Authorization': '{}'.format(token), 'Accept': 'application/vnd.castsoftware.api.basic+json'}
 
     url = f'https://rpa.casthighlight.com/WS2/domains/{domain_id}/applications'
     (status,json) = rest_call(url,{'Authorization': '{}'.format(token), 'Accept': 'application/json'})
@@ -79,21 +89,26 @@ def get_application_info(domain_id):
     cloudready_info_df = pd.DataFrame()
     sca_info_df = pd.DataFrame()
 
-    with tqdm(total=7) as pbar:
+    with tqdm(total = 7) as pbar:
         pbar.set_description("Processing Applications")
 
-        (total_apps,apps) = get_total_apps(domain_id)
+        (total_apps, apps) = get_total_apps(domain_id)
         pbar.update(1)
         application = pd.json_normalize(apps, meta=['id'])
         pbar.update(1)
         for row in apps:
             if row.get('metrics') is None:
-                row['metrics']=[]
-        metrics = pd.json_normalize(apps, 'metrics', meta=['id'],record_prefix='metrics.')
-        #domains = pd.json_normalize(apps, 'domains', meta=['id'],record_prefix='domain.')
+                row['metrics'] = []
+
+            if row.get('domains') is None:
+                row['domains'] = []
+
+        metrics = pd.json_normalize(apps, 'metrics', meta=['id'], record_prefix='metrics.')
+        domains = pd.json_normalize(apps, 'domains', meta=['id'], record_prefix='domain.')
         pbar.update(1)
 
-        application = application.drop(columns=['domains','metrics','contributors'])
+        #application = application.drop(columns=['domains','metrics','contributors'])
+        application = application.drop(columns=['domains','metrics'])
         drop_column(metrics,'metrics.vulnerabilities')
         drop_column(metrics,'metrics.customIndicators')
         drop_column(metrics,'metrics.technologies')
@@ -159,11 +174,12 @@ def get_cloudready_info(app_info_df):
 
     cloudready_info_df = pd.DataFrame()
 
-    loc = app_info_df[app_info_df['LOC']>0]
+    loc = app_info_df[app_info_df['LOC'] > 0]
     loc = loc[(loc['Roadblocks']>0) | (loc['Boosters']>0) ]
     
     total_apps = len(loc)
     json_ary=[]
+
     with tqdm(total=total_apps) as pbar:
         pbar.set_description("Processing CloudReady information")
 
@@ -172,7 +188,8 @@ def get_cloudready_info(app_info_df):
             app_id = row['Appl Id']
             app_name = row['Appl Name']
             url = f'https://rpa.casthighlight.com/WS2/domains/{domain_id}/applications/{app_id}'
-            (status,json) = rest_call(url,{'Authorization': '{}'.format(token), 'Accept': 'application/json'})
+            (status, json) = rest_call(url,{'Authorization': '{}'.format(token), 'Accept': 'application/json'})
+
             try:
                 data = json['metrics'][0]['cloudReadyDetail']
             except (KeyError):
@@ -190,7 +207,7 @@ def get_cloudready_info(app_info_df):
             else:
                 cloudready_info_df = cloudready_info_df.append(app_cr_df)
 
-            if debug_WF and index > 2:
+            if debug_WF and index > 200:
                 break
         
         # take care of the column names
@@ -203,7 +220,7 @@ def get_cloudready_info(app_info_df):
         cloudready_info_df.rename(columns={'cloudRequirement.criticality':'Criticality'}, inplace=True)
         cloudready_info_df.rename(columns={'cloudRequirement.impacts':'Rule Impact'}, inplace=True)
         cloudready_info_df.rename(columns={'rulePlatform':'Rule Platform'}, inplace=True)
-        cloudready_info_df.rename(columns={'cloudRequirement.hrefDoc':'Doc Reference'}, inplace=True)
+        #cloudready_info_df.rename(columns={'cloudRequirement.hrefDoc':'Doc Reference'}, inplace=True)
         cloudready_info_df.rename(columns={'cloudRequirement.rulePlatform':'Rule Platform'}, inplace=True)
         cloudready_info_df.rename(columns={'cloudRequirement.display':'Rule'}, inplace=True)
 
@@ -215,22 +232,18 @@ def get_cloudready_info(app_info_df):
 
         cloudready_info_df = cloudready_info_df[['Appl Id','Appl Name', 'Technology', 'Rule Type', \
                                     'Contrib Score', 'Effort','Files', 'Roadblocks', 'Criticality', \
-                                    'Rule Impact', 'Rule', 'Doc Reference']]
-
+                                    'Rule Impact', 'Rule']]
+                                    #'Rule Impact', 'Rule', 'Doc Reference']]
 
         return cloudready_info_df
 
-
-
-def adjust_percent(df,name):
+def adjust_percent(df, name):
     if df.get(name) is not None:
         df[name] = round(df[name] * 100, 2)
 
-def drop_column(df,name):
+def drop_column(df, name):
     if df.get(name) is not None:
         del df[name]
-
-
 
 """
 def get_app_info():
@@ -573,6 +586,105 @@ def adjust_cr_cols(cr_df):
     return
 """
 
+def get_timeline_info(sca_info_df):
+    global time_tracker_df
+
+    timeline_info_df = pd.DataFrame()
+    comp_timeline_df = pd.DataFrame()
+    # For storing component ids for timeline retrieval
+    comp_id_df = pd.DataFrame(sca_info_df, columns = ['id'])
+
+    # Drop all duplicate component ids
+    comp_id_df.drop_duplicates()
+
+    with tqdm(total = len(comp_id_df)) as pbar:
+        pbar.set_description("Retrieveing timeline info")
+
+        for index, comp in comp_id_df.iterrows():
+            comp_id = comp['id']
+            print(f'Processing:{index}/Comp Id: {comp_id}')
+
+            # Clear the dataframe.
+            comp_timeline_df.iloc[0:0]
+
+            url = f'{BASE_URL}/domains/{domain_id}/components/{comp_id}/timeline'
+            print(f'Timeline URL:{url}')
+
+            resp = {}
+
+            if (_track_time):
+                # Used for track elapsed duration, if enabled.
+                start_dttm = ctime()
+                start_tm = perf_counter()
+
+            # TODO: Errorhandling
+            resp = requests.get(url=url, headers=head)
+
+            # Save the duration, if enabled.
+            if (_track_time):
+                end_tm = perf_counter()
+                end_dttm = ctime()
+                duration = end_tm - start_tm
+
+                #print(f'Request completed in {duration} ms')
+                time_tracker_df = time_tracker_df.append({'Application': app_name, 'URL': url, 'Start Time': start_dttm \
+                                                        , 'End Time': end_dttm, 'Duration': duration}, ignore_index=True)
+
+            response_json = resp.json()
+
+            # Version information may not always exist.
+
+            try:
+                data = response_json['versions']
+            except (KeyError):
+                response_json['versions'] = []
+
+            for i in response_json['versions']:
+                cve = i.get('cve')
+
+                if cve is None:
+                    i['cve'] = {'vendor': '', 'product': '', 'version': '', 'vulnerabilities': [] }
+
+            # Now we should be able to normalize without an issue.
+            #cves = pd.json_normalize(response_json['thirdParties'], 'cve', record_prefix='cve_')
+            #cves.head(90)
+
+            #tpty_df = pd.json_normalize(response_json['thirdParties'])
+            #tpty_df.head(20)
+
+            # GOOD - DO NOT MODIFY
+            # vul_df = pd.json_normalize(response_json['thirdParties'], record_path=['cve','vulnerabilities'], meta=['id', ['cve', 'vendor']], record_prefix='vulnerabilty_')
+            ##############
+            cve_df = pd.json_normalize(response_json['thirdParties'], record_path=['cve', 'vulnerabilities'], meta=['id', 'componentId', ['cve', 'vendor']])
+
+            # TODO: Ignoring license information for now.
+            # Retrieve license information.
+
+            #licenses = pd.json_normalize(response_json['thirdParties'], 'licenses', meta=['id'], record_prefix='license_')
+
+            # Add application id and application name as 2 new columns in the df.
+            cve_df.insert(0, 'Appl Id', app_id)
+            cve_df.insert(1, 'Appl Name', app_name)
+
+            # Append the data for the current application to the main dataframe, before processing
+            # the CVE info for the next application.
+
+            if (complete_sca_df.empty and (not cve_df.empty)):
+                complete_sca_df =  cve_df
+            else:
+                complete_sca_df = complete_sca_df.append(cve_df)
+
+            #show progress made.
+            pbar.update(1)
+
+            if debug_WF and index > 5:
+                break
+
+
+#    print('\nDone.')
+
+    return timeline_info_df
+
 
 def create_excel(app_info_df: DataFrame,cloudready_info_df: DataFrame,sca_info_df: DataFrame):
     # see: https://xlsxwriter.readthedocs.io/working_with_pandas.html
@@ -662,10 +774,11 @@ def main():
     app_info_df = pd.DataFrame()
     cloudready_info_df = pd.DataFrame()
     sca_info_df = pd.DataFrame()
+    timeline_info_df = pd.DataFrame()
 
 #    (total_apps,apps) = get_total_apps(domain_id)
 #    print(f'Processing {total_apps} applications..')
-    (app_info_df,total_apps) = get_application_info(domain_id)
+    (app_info_df, total_apps) = get_application_info(domain_id)
 
     if (run_cloud):
         cloudready_info_df = get_cloudready_info(app_info_df)
@@ -679,6 +792,15 @@ def main():
                                 'CVE', 'Criticality', 'CVE Link', 'CPE', 'Id', 'Component Name',  \
                                 'Component Vendor', 'Description']]
 
+    # Get timeline info for each component
+    # This retrieval could take a while... may be a good time to get some coffee!!
+
+    if (run_timeline):
+        if (run_oss):
+            timeline_info_df = get_timeline_info(sca_info_df)
+        else:
+            print('\nERROR: Cannot retrieve timeline info when run_oss is turned off. Skipping..')
+
     create_excel(app_info_df,cloudready_info_df,sca_info_df)
     
     # TODO: Table formatting
@@ -690,6 +812,20 @@ if __name__ == "__main__":
     start_tm = perf_counter()
 
     print(f'Process started at:{start_dttm}')
+
+    # Process the args.
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--debug", dest="debug", action="store_true", help="Enable debugging info display")
+    parser.add_argument("-c", "--cr", dest="run_cloud", action="store_true", help="Enable Cloud Ready data retrieval")
+    parser.add_argument("-s", "--sca", dest="run_oss", action="store_true", help="Enable Open-source vulnerabilities data retrieval")
+    parser.add_argument("-t", "--time", dest="run_timeline", action="store_true", help="Enable component timeline information retrieval")
+    args = parser.parse_args()
+
+    debug = args.debug
+    run_cloud = args.run_cloud
+    run_oss = args.run_oss
+    run_timeline = args.run_timeline
+
     main()
 
     end_tm = perf_counter()
